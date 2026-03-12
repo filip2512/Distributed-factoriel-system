@@ -10,6 +10,7 @@ import handler.ResultHandler;
 import handler.StopHandler;
 import handler.StartHandler;
 import com.sun.net.httpserver.HttpServer;
+import exception.StorageException;
 import executor.Executor;
 import java.net.InetSocketAddress;
 import service.ProcessManager;
@@ -20,7 +21,7 @@ import service.ProcessManager;
  */
 public class ComputitionServer {
     
-     public static void main(String[] args) throws Exception {
+     public static void main(String[] args) throws StorageException, java.io.IOException {
 
        ProcessManager manager = new ProcessManager();
 

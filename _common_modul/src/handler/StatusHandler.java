@@ -6,6 +6,11 @@ package handler;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
+import exception.InvalidRequestException;
+import exception.ProcessNotFoundException;
+import exception.ServiceUnavailableException;
+import exception.StorageException;
+import validation.RequestValidator;
 import executor.Executor;
 import java.io.IOException;
 import java.io.InputStream;
@@ -39,20 +44,34 @@ public class StatusHandler implements HttpHandler {
             String body = new String(is.readAllBytes(), StandardCharsets.UTF_8);
             JSONObject json = new JSONObject(body);
 
-            if (!json.has("id") || json.getString("id").isEmpty()) {
-                throw new IllegalArgumentException("Missing or empty id");
+            if (!json.has("id")) {
+                throw new InvalidRequestException("Required field: id");
             }
-
             String id = json.getString("id");
+            RequestValidator.validateProcessId(id);
             String status = executor.getStatus(id);
 
-            exchange.sendResponseHeaders(200, status.length());
-            try (OutputStream os = exchange.getResponseBody()) { os.write(status.getBytes()); }
+            exchange.sendResponseHeaders(200, status.getBytes(StandardCharsets.UTF_8).length);
+            try (OutputStream os = exchange.getResponseBody()) { os.write(status.getBytes(StandardCharsets.UTF_8)); }
 
+        } catch (InvalidRequestException e) {
+            sendError(exchange, 400, "400 Bad Request: " + e.getMessage());
+        } catch (ProcessNotFoundException e) {
+            sendError(exchange, 404, "404 NOT_FOUND: " + e.getMessage());
+        } catch (StorageException e) {
+            sendError(exchange, 500, "500 Internal Server Error: " + e.getMessage());
+        } catch (ServiceUnavailableException e) {
+            sendError(exchange, 503, "503 Service Unavailable: " + e.getMessage());
+        } catch (IllegalArgumentException | org.json.JSONException e) {
+            sendError(exchange, 400, "400 Bad Request: " + e.getMessage());
         } catch (Exception e) {
-            String response = "Error: " + e.getMessage();
-            exchange.sendResponseHeaders(400, response.length());
-            try (OutputStream os = exchange.getResponseBody()) { os.write(response.getBytes()); }
+            sendError(exchange, 500, "500 Internal Server Error: " + e.getMessage());
         }
+    }
+
+    private void sendError(HttpExchange exchange, int code, String response) throws IOException {
+        byte[] bytes = response.getBytes(StandardCharsets.UTF_8);
+        exchange.sendResponseHeaders(code, bytes.length);
+        try (OutputStream os = exchange.getResponseBody()) { os.write(bytes); }
     }
 }

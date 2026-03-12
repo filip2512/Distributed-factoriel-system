@@ -12,8 +12,13 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.UUID;
 import java.util.concurrent.ForkJoinPool;
-import java.util.concurrent.Semaphore;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import javax.sql.DataSource;
+import exception.InvalidRequestException;
+import exception.ProcessNotFoundException;
+import exception.StorageException;
+import validation.RequestValidator;
 import model.CalculationProcess;
 import model.ProcessStatus;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
@@ -29,10 +34,12 @@ import task.FactorialTask;
 public class ProcessManager {
     
     private Map<String, CalculationProcess> processes = new HashMap<>();
-    private Semaphore semaphore = new Semaphore(1);
+    private final ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock();
+    private final Lock readLock = rwLock.readLock();
+    private final Lock writeLock = rwLock.writeLock();
     private StorageService storage; 
      
-    public ProcessManager() throws Exception {
+    public ProcessManager() throws StorageException, IOException {
 
         Properties props = new Properties();
         try (InputStream is = getClass().getClassLoader().getResourceAsStream("config.properties")) {
@@ -55,41 +62,46 @@ public class ProcessManager {
 
             this.storage = new DatabaseStorageService(ds);
         } else {
-            this.storage = new FileStorageService();
+            try {
+                this.storage = new FileStorageService();
+            } catch (IOException e) {
+                throw new StorageException("Failed to initialize file storage", e);
+            }
         }
 
     }
     
-    public void addProcess(CalculationProcess process) throws InterruptedException {
-
-        semaphore.acquire();
-
+    public void addProcess(CalculationProcess process) {
+        writeLock.lock();
         try {
             processes.put(process.getId(), process);
         } finally {
-            semaphore.release();
+            writeLock.unlock();
         }
     }
     
-    public CalculationProcess getProcess(String id) throws InterruptedException {
-
-        semaphore.acquire();
-
+    public CalculationProcess getProcess(String id) {
+        readLock.lock();
         try {
             return processes.get(id);
         } finally {
-            semaphore.release();
+            readLock.unlock();
         }
     }
     
-    public String startProcess(int number, int threadCount) throws InterruptedException, IOException {
+    public String startProcess(int number, int threadCount) throws InvalidRequestException, StorageException {
+        RequestValidator.validateStartParams(number, threadCount);
 
         String id = UUID.randomUUID().toString();
 
         CalculationProcess process = new CalculationProcess(id, number, threadCount);
 
         addProcess(process);
-        storage.saveProcess(process);
+        try {
+            storage.saveProcess(process);
+        } catch (IOException e) {
+            throw new StorageException("Failed to save process", e);
+        }
         new Thread(() -> {
 
             try {
@@ -102,60 +114,74 @@ public class ProcessManager {
 
                 process.setStatus(ProcessStatus.COMPLETED);
                 storage.saveProcess(process);
-
+                pool.shutdown();
             } catch (Exception e) {
 
                 process.setStatus(ProcessStatus.STOPPED);
 
             }
-
+            
         }).start();
-
+        
         return id;
 
     }
-    public ProcessStatus getStatus(String id) throws InterruptedException {
-
-        CalculationProcess process = getProcess(id);
-
-        if (process == null) {
-            return null;
+    public ProcessStatus getStatus(String id) throws InvalidRequestException, ProcessNotFoundException {
+        RequestValidator.validateProcessId(id);
+        readLock.lock();
+        try {
+            CalculationProcess process = processes.get(id);
+            if (process == null) {
+                throw new ProcessNotFoundException("Process not found: " + id);
+            }
+            return process.getStatus();
+        } finally {
+            readLock.unlock();
         }
-
-        return process.getStatus();
     }
-    public BigInteger getResult(String id) throws InterruptedException {
-
-        CalculationProcess process = getProcess(id);
-
-        if (process == null) {
-            return null;
+    public BigInteger getResult(String id) throws InvalidRequestException, ProcessNotFoundException {
+        RequestValidator.validateProcessId(id);
+        readLock.lock();
+        try {
+            CalculationProcess process = processes.get(id);
+            if (process == null) {
+                throw new ProcessNotFoundException("Process not found: " + id);
+            }
+            return process.getResult();
+        } finally {
+            readLock.unlock();
         }
-
-        return process.getResult();
     }
     
-    public void stopProcess(String id) throws InterruptedException, IOException {
-
+    public void stopProcess(String id) throws InvalidRequestException, ProcessNotFoundException, StorageException {
+        RequestValidator.validateProcessId(id);
         CalculationProcess process = getProcess(id);
 
-        if (process != null) {
+        if (process == null) {
+            throw new ProcessNotFoundException("Process not found: " + id);
+        }
 
-            process.getCancelled().set(true);
-
-            process.setStatus(ProcessStatus.STOPPED);
+        process.getCancelled().set(true);
+        process.setStatus(ProcessStatus.STOPPED);
+        try {
             storage.saveProcess(process);
-
+        } catch (IOException e) {
+            throw new StorageException("Failed to save process", e);
         }
-
     }
     
-    public String recommenceProcess(String id) throws Exception {
+    public String recommenceProcess(String id) throws InvalidRequestException, ProcessNotFoundException, StorageException {
+        RequestValidator.validateProcessId(id);
 
-        CalculationProcess process = storage.loadProcess(id);
+        CalculationProcess process;
+        try {
+            process = storage.loadProcess(id);
+        } catch (IOException e) {
+            throw new StorageException("Failed to load process", e);
+        }
 
         if (process == null) {
-            return null;
+            throw new ProcessNotFoundException("Process not found: " + id);
         }
 
         addProcess(process);

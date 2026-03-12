@@ -5,6 +5,10 @@
 package handler;
 
 import com.sun.net.httpserver.HttpExchange;
+import exception.InvalidRequestException;
+import exception.ServiceUnavailableException;
+import exception.StorageException;
+import validation.RequestValidator;
 import com.sun.net.httpserver.HttpHandler;
 import executor.Executor;
 
@@ -42,12 +46,12 @@ public class StartHandler implements HttpHandler {
             String body = new String(is.readAllBytes(), StandardCharsets.UTF_8);
             JSONObject json = new JSONObject(body);
 
+            if (!json.has("number") || !json.has("threads")) {
+                throw new InvalidRequestException("Required fields: number, threads");
+            }
             int number = json.getInt("number");
             int threads = json.getInt("threads");
-
-            if (number <= 0 || threads <= 0) {
-                throw new IllegalArgumentException("Number and threads must be > 0");
-            }
+            RequestValidator.validateStartParams(number, threads);
 
             String processId = executor.startProcess(number, threads);
             String response = "Process started: " + processId;
@@ -57,12 +61,24 @@ public class StartHandler implements HttpHandler {
                 os.write(response.getBytes());
             }
 
+        } catch (InvalidRequestException e) {
+            sendError(exchange, 400, "400 Bad Request: " + e.getMessage());
+        } catch (StorageException e) {
+            sendError(exchange, 500, "500 Internal Server Error: " + e.getMessage());
+        } catch (ServiceUnavailableException e) {
+            sendError(exchange, 503, "503 Service Unavailable: " + e.getMessage());
+        } catch (IllegalArgumentException | org.json.JSONException e) {
+            sendError(exchange, 400, "400 Bad Request: " + e.getMessage());
         } catch (Exception e) {
-            String response = "Error: " + e.getMessage();
-            exchange.sendResponseHeaders(400, response.length());
-            try (OutputStream os = exchange.getResponseBody()) {
-                os.write(response.getBytes());
-            }
+            sendError(exchange, 500, "500 Internal Server Error: " + e.getMessage());
+        }
+    }
+
+    private void sendError(com.sun.net.httpserver.HttpExchange exchange, int code, String response) throws java.io.IOException {
+        byte[] bytes = response.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        exchange.sendResponseHeaders(code, bytes.length);
+        try (OutputStream os = exchange.getResponseBody()) {
+            os.write(bytes);
         }
     }
 }

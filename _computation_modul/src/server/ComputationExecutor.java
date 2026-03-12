@@ -4,6 +4,10 @@
  */
 package server;
 
+import exception.InvalidRequestException;
+import exception.ProcessNotFoundException;
+import exception.ServiceUnavailableException;
+import exception.StorageException;
 import executor.Executor;
 import service.ProcessManager;
 
@@ -19,27 +23,28 @@ class ComputationExecutor implements Executor{
     }
 
     @Override
-    public String startProcess(int number, int threads) throws Exception {
+    public String startProcess(int number, int threads) throws InvalidRequestException, StorageException, ServiceUnavailableException {
         return manager.startProcess(number, threads);
     }
 
     @Override
-    public String getStatus(String id) throws Exception {
+    public String getStatus(String id) throws InvalidRequestException, ProcessNotFoundException, StorageException, ServiceUnavailableException {
         return manager.getStatus(id).name();
     }
 
     @Override
-    public String getResult(String id) throws Exception {
-        return manager.getResult(id) != null ? manager.getResult(id).toString() : "Not ready";
+    public String getResult(String id) throws InvalidRequestException, ProcessNotFoundException, StorageException, ServiceUnavailableException {
+        java.math.BigInteger result = manager.getResult(id);
+        return result != null ? result.toString() : "Not ready";
     }
 
     @Override
-    public void stopProcess(String id) throws Exception {
+    public void stopProcess(String id) throws InvalidRequestException, ProcessNotFoundException, StorageException, ServiceUnavailableException {
         manager.stopProcess(id);
     }
 
     @Override
-    public String recommenceProcess(String id) throws Exception {
+    public String recommenceProcess(String id) throws InvalidRequestException, ProcessNotFoundException, StorageException, ServiceUnavailableException {
         return manager.recommenceProcess(id);
     }
 

@@ -29,12 +29,13 @@ public class GatewayServer {
         server.createContext("/stop", new StopHandler(executor));
         server.createContext("/recommence", new RecommenceHandler(executor));
 
-        server.setExecutor(null);
         server.start();
 
         System.out.println("Gateway server running on port 8080");
          }catch(Exception e){
-             System.out.println(e);
+            e.getMessage();
+            e.printStackTrace();
+            System.exit(1);
          }
     }
 }

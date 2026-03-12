@@ -11,6 +11,10 @@ import java.nio.file.Paths;
 import model.CalculationProcess;
 import model.ProcessStatus;
 import java.math.BigInteger;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+import org.json.JSONException;
+import org.json.JSONObject;
 
 public class FileStorageService implements StorageService {
     
@@ -44,29 +48,32 @@ public class FileStorageService implements StorageService {
     @Override
     public CalculationProcess loadProcess(String id) throws IOException {
 
-        Path file = Paths.get(DIRECTORY + "/" + id + ".txt");
-
-        if (!Files.exists(file)) {
-            return null;
+        try {
+            Path file = Paths.get(DIRECTORY + "/" + id + ".json");
+            if (!Files.exists(file)) {
+                return null;
+            }
+            
+            String content = Files.readString(file);
+            JSONObject json = new JSONObject(content);
+            
+            String processId = json.getString("id");
+            int number = json.getInt("number");
+            int threads = json.getInt("threads");
+            String statusStr = json.getString("status");
+            int lastComputed = json.getInt("lastComputed");
+            String partialResultStr = json.getString("partialResult");
+            
+            CalculationProcess process = new CalculationProcess(processId, number, threads);
+            
+            process.setStatus(ProcessStatus.valueOf(statusStr));
+            process.setLastComputed(lastComputed);
+            process.setPartialResult(new BigInteger(partialResultStr));
+            
+            return process;
+        } catch (JSONException ex) {
+            Logger.getLogger(FileStorageService.class.getName()).log(Level.SEVERE, null, ex);
         }
-
-        String content = Files.readString(file);
-
-        String[] parts = content.split("\n");
-
-        String processId = parts[0].substring(4);
-        int number = Integer.parseInt(parts[1].substring(8));
-        int threads = Integer.parseInt(parts[2].substring(14));
-        String statusStr = parts[3].substring(8).trim();
-        int lastComputed = Integer.parseInt(parts[4].substring(15).trim());
-        String partialResultStr = parts[5].substring(16).trim();
-
-        CalculationProcess process = new CalculationProcess(processId, number, threads);
-
-        process.setStatus(ProcessStatus.valueOf(statusStr));
-        process.setLastComputed(lastComputed);
-        process.setPartialResult(new BigInteger(partialResultStr));
-
-        return process;
+        return null;
     }
 }
